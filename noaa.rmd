@@ -1,0 +1,153 @@
+# Analyzing the Severe Weather Events: Which are the Deadliest?
+
+## Synopsis
+
+  This document contains an analysis of a data set provided by the U.S. National 
+Oceanic and Atmospheric Administration's (NOAA) storm database. The goal is to 
+identify which types of events are most harmful to the health of populations, 
+and which events deal the most economic damage. First, the data was processed
+in R by taking the original file and extracting only the relevant data. Next,
+data was partially cleaned by refactoring some erroneous features and then 
+numbers were scaled according to the NOAA Storm Data Documentation in order to
+obtain more precise figures. The figures show only the events that are above
+average in their severity of damage dealt in comparison to all other events. 
+
+## Data Processing
+
+This analysis made use of the R Package "tidyverse".
+
+The raw data was loaded into R using the base read.csv function. Afterwards, only
+the columns of interest were extracted from the main dataframe and stored in a new
+data frame for easier analysis. New variables were created by simply summing up
+other variables together, namely the Total_Injuries and Total_Fatalities variables.
+Then, yet another variable was created in the same manner called Total_FI, which 
+combined both Total_Injuries and Total_Fatalities into one for each different event.
+However, with the sheer amount of observations and different types of events, there
+would be no way to fit so many on a single plot. So, the data was further subsetted
+by including events that had a higher Total_FI value than the mean Total_FI value
+across all events. This narrowed down the number of observations to 18, making for
+a very clear and concise plot.
+
+```{r library, echo = TRUE, warning = FALSE, message = FALSE}
+require(tidyverse)
+```
+
+```{r process, echo = TRUE, cache=TRUE, warning=FALSE}
+SD = read.csv("repdata_data_StormData.csv")
+Pop_Health = SD[,c(8,23,24)]
+Pop_Health_Total = Pop_Health %>% group_by(EVTYPE) %>% summarize(Total_Fatalities = sum(FATALITIES),
+                                                                 Total_Injuries = sum(INJURIES))
+
+PHT_Subset = subset(Pop_Health_Total, Total_Fatalities > 0 | Total_Injuries > 0)
+
+PHT_Subset = PHT_Subset %>% mutate(Total_FI = Total_Fatalities + Total_Injuries)
+
+PHT_Subset = PHT_Subset %>% arrange(desc(Total_FI))
+
+PHT_Subset = subset(PHT_Subset, Total_FI > mean(Total_FI))
+
+PHT_Subset = PHT_Subset %>% arrange(desc(Total_FI))
+```
+
+The PHT_Subset was sufficient to examine which events were deadliest in terms of
+human deaths and injuries. Another tidy dataset was prepared in order to answer
+the question of which events caused the most economic damage. Similarly, only
+variables of interest were subsetted from the main raw dataframe. However, the data
+collected for variables pertaining to economic damage were far more unclean than
+the human casualty variables. Raw numeric variables were reported for the variables
+PROPDMG and CROPDMG, standing for "property damage" and "crop damage", respectively,
+but each observation was accompanied by a factor variable describing the amount.
+For example, the documentation provided by the NOAA outlined factor levels "K", 
+"M", and "B" to represent "thousands of dollars", "millions of dollars", and "billions
+of dollars". So a PROPDMG value of 25 accompanied by a "M" in the PROPDMGEXP column
+represented a total property damage of 25 million USD. The data recorders also made
+mistakes while documenting the factor level of PROPDMGEXP, with some observations 
+being mislabeled with lowercase letters instead of the standard uppercase (i.e. "m"
+instead of "M", "b" instead of "B".) This was solved by releveling the mislabeled
+factors with their appropriate match. Additionally, there were several additional
+levels with no explanation of their meaning in the documentation, such as levels
+with numbers 0-8 in the PROPDMGEXP factor. However, since there were only a handful
+of observations with these levels as their label, they could be safely ignored
+without too much of an effect on the overall picture. The values were appropriately
+rescaled using the PROPDMGEXP and CROPDMGEXP levels and as with the human casualty
+variables, a new dataframe containing only high damaging events was created that 
+contained the total property and crop damage dealt in billions of dollars.
+
+```{r process2, echo = TRUE, cache=TRUE}
+Econ_Damage = SD[,c(8,25,26,27,28)]
+
+Econ_Subset = subset(Econ_Damage, PROPDMG > 0 | CROPDMG > 0)
+
+Econ_Subset$PROPDMGEXP = plyr::revalue(Econ_Subset$PROPDMGEXP, c("h" = "H", "m" = "M"))
+Econ_Subset$CROPDMGEXP = plyr::revalue(Econ_Subset$CROPDMGEXP, c("k" = "K", "m" = "M"))
+
+Econ_Subset$PROPDMG[Econ_Subset$PROPDMGEXP == "H"] = 
+  (Econ_Subset$PROPDMG[Econ_Subset$PROPDMGEXP == "H"])*100
+Econ_Subset$PROPDMG[Econ_Subset$PROPDMGEXP == "K"] = 
+  (Econ_Subset$PROPDMG[Econ_Subset$PROPDMGEXP == "K"])*1000
+Econ_Subset$PROPDMG[Econ_Subset$PROPDMGEXP == "M"] = 
+  (Econ_Subset$PROPDMG[Econ_Subset$PROPDMGEXP == "M"])*1000000
+Econ_Subset$PROPDMG[Econ_Subset$PROPDMGEXP == "B"] = 
+  (Econ_Subset$PROPDMG[Econ_Subset$PROPDMGEXP == "B"])*1000000000
+
+Econ_Subset$CROPDMG[Econ_Subset$CROPDMGEXP == "K"] = 
+  (Econ_Subset$CROPDMG[Econ_Subset$CROPDMGEXP == "K"])*1000
+Econ_Subset$CROPDMG[Econ_Subset$CROPDMGEXP == "M"] = 
+  (Econ_Subset$CROPDMG[Econ_Subset$CROPDMGEXP == "M"])*1000000
+Econ_Subset$CROPDMG[Econ_Subset$CROPDMGEXP == "B"] = 
+  (Econ_Subset$CROPDMG[Econ_Subset$CROPDMGEXP == "B"])*1000000000
+
+Total_Econ = Econ_Subset %>% group_by(EVTYPE) %>% summarize(TotCropDmg = sum(CROPDMG),
+                                                            TotPropDmg = sum(PROPDMG))
+Total_Econ = Total_Econ %>% mutate(Total_Damage = TotCropDmg + TotPropDmg)
+
+High_Damage = subset(Total_Econ, Total_Damage > mean(Total_Damage))
+High_Damage$Total_Damage = (High_Damage$Total_Damage)/1000000000
+```
+
+## Results
+
+Two plots were created which compactly answer the initial questions: which
+events are most damaging to human health, and which are most damaging to the
+economy. 
+
+
+The first plot was created using the PHT_Subset dataframe, which outlined
+the combined number of human injuries and fatalities for each of the 18 deadliest
+events. Exact numbers are shown above each bar in the plot. 
+
+```{r total_HI_plot, echo = TRUE, fig.height=5, fig.width=8}
+palette = colorRampPalette(c("blue","purple","red"))
+
+g = ggplot(PHT_Subset, aes(x = reorder(EVTYPE, -Total_FI), y = Total_FI, fill = EVTYPE)) 
+g + geom_col() + 
+    theme(text = element_text(size = 10), 
+          axis.text.x = element_text(angle = 45, hjust = 1)) +
+    xlab("Event") +
+    ylab("Combined Number of Injuries and Fatalities") +
+    ggtitle("Combined Total Number of Injuries and Fatalities by Event") +
+    scale_fill_manual(values = palette(18)) +
+    geom_text(aes(label = Total_FI), size = 3, vjust = -0.5)
+```
+
+The second plot was created using the High_Damage dataframe, which outlined the 
+total economic damage done (property + crop damage) by the most damaging events.
+The units are in billions of U.S. dollars, and the rounded values are displayed
+above each bar. 
+
+```{r economic_damage, echo = TRUE, fig.height=5, fig.width=6}
+palette2 = colorRampPalette(c("red","orange","yellow"))
+
+g2 = ggplot(High_Damage, aes(x = reorder(EVTYPE, -Total_Damage), y = Total_Damage, fill = EVTYPE)) 
+g2 + geom_col() + 
+  theme(text = element_text(size = 10), 
+        axis.text.x = element_text(angle = 45, hjust = 1)) +
+  xlab("Event") +
+  ylab("Total Damage in USD (Billions)") +
+  ggtitle("Total Damage Done by Event") +
+  scale_fill_manual(values = palette2(25)) +
+  geom_text(aes(label = round(Total_Damage)), size = 3, vjust = -0.5) +
+  theme(legend.position = "none")
+```
+
+
